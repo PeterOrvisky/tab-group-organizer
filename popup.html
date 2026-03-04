@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="header">
+    <div class="title">Tab Organizer</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Kategórie</div>
+    <div id="categories">
+      <div class="category-item">
+        <div class="category-info">
+          <div class="category-name">Sociálne siete</div>
+          <div class="category-domains">YouTube, Facebook, Instagram...</div>
+        </div>
+        <div class="color-preview" style="background: #ef4444"></div>
+      </div>
+      <div class="category-item">
+        <div class="category-info">
+          <div class="category-name">Škola</div>
+          <div class="category-domains">Edupage, AIS, Moodle...</div>
+        </div>
+        <div class="color-preview" style="background: #3b82f6"></div>
+      </div>
+      <div class="category-item">
+        <div class="category-info">
+          <div class="category-name">Programovanie</div>
+          <div class="category-domains">GitHub, StackOverflow...</div>
+        </div>
+        <div class="color-preview" style="background: #22c55e"></div>
+      </div>
+      <div class="category-item">
+        <div class="category-info">
+          <div class="category-name">Zábava</div>
+          <div class="category-domains">Netflix, Twitch, Steam...</div>
+        </div>
+        <div class="color-preview" style="background: #a855f7"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <button class="organize-btn" id="organizeBtn" type="button">Usporiadať taby</button>
+    <div class="status" id="status">Pripravené</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
