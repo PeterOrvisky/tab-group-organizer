@@ -2,50 +2,39 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="header">
-    <div class="title">Tab Organizer</div>
-  </div>
+  <div class="shell">
+    <header class="header">
+      <div>
+        <div class="eyebrow">Browser extension</div>
+        <h1>Tab Organizer</h1>
+        <p class="subtitle">Zoskupuje taby podla domén a vlastných kategórií.</p>
+      </div>
+      <label class="switch" aria-label="Zapnutie rozšírenia">
+        <input type="checkbox" id="enabledToggle">
+        <span class="switch-track"></span>
+      </label>
+    </header>
 
-  <div class="section">
-    <div class="section-title">Kategórie</div>
-    <div id="categories">
-      <div class="category-item">
-        <div class="category-info">
-          <div class="category-name">Sociálne siete</div>
-          <div class="category-domains">YouTube, Facebook, Instagram...</div>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Kategórie</h2>
+          <p>Pomenuj skupiny, nastav farby a pridaj vlastne domény.</p>
         </div>
-        <div class="color-preview" style="background: #ef4444"></div>
+        <button id="addCategoryBtn" type="button" class="ghost-btn">Pridat kategóriu</button>
       </div>
-      <div class="category-item">
-        <div class="category-info">
-          <div class="category-name">Škola</div>
-          <div class="category-domains">Edupage, AIS, Moodle...</div>
-        </div>
-        <div class="color-preview" style="background: #3b82f6"></div>
-      </div>
-      <div class="category-item">
-        <div class="category-info">
-          <div class="category-name">Programovanie</div>
-          <div class="category-domains">GitHub, StackOverflow...</div>
-        </div>
-        <div class="color-preview" style="background: #22c55e"></div>
-      </div>
-      <div class="category-item">
-        <div class="category-info">
-          <div class="category-name">Zábava</div>
-          <div class="category-domains">Netflix, Twitch, Steam...</div>
-        </div>
-        <div class="color-preview" style="background: #a855f7"></div>
-      </div>
-    </div>
-  </div>
+      <div id="categories" class="categories"></div>
+    </section>
 
-  <div class="section">
-    <button class="organize-btn" id="organizeBtn" type="button">Usporiadať taby</button>
-    <div class="status" id="status">Pripravené</div>
+    <section class="panel actions-panel">
+      <button class="primary-btn" id="organizeBtn" type="button">Preusporiadat teraz</button>
+      <div class="status" id="status">Nacitavam nastavenia...</div>
+      <p class="hint">Nastavenia sa ukladaju automaticky.</p>
+    </section>
   </div>
 
   <script src="popup.js"></script>

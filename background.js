@@ -1,148 +1,359 @@
-// Tab Organizer - Background Script
-console.log('Tab Organizer: Background script načítaný');
+const STORAGE_KEY = 'tabOrganizerSettings';
+const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
 
-// Preddefinované kategórie stránok
-const defaultCategories = {
-  'social': {
-    name: 'Sociálne siete',
-    color: 'red',
-    domains: ['facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'linkedin.com', 'tiktok.com', 'reddit.com', 'discord.com', 'youtube.com']
-  },
-  'school': {
-    name: 'Škola',
-    color: 'blue',
-    domains: ['edupage.org', 'ais.uniba.sk', 'uniba.sk', 'stuba.sk', 'ukf.sk', 'tuke.sk', 'umb.sk', 'moodle.com', 'moodle.org']
-  },
-  'programming': {
-    name: 'Programovanie',
-    color: 'green',
-    domains: ['github.com', 'stackoverflow.com', 'codepen.io', 'jsfiddle.net', 'replit.com', 'glitch.com', 'codesandbox.io']
-  },
-  'entertainment': {
-    name: 'Zábava',
-    color: 'purple',
-    domains: ['netflix.com', 'hbo.com', 'primevideo.com', 'disneyplus.com', 'twitch.tv', 'steam.com']
-  }
+const defaultSettings = {
+  enabled: true,
+  includeOtherGroup: true,
+  categories: [
+    {
+      id: 'social',
+      name: 'Socialne siete',
+      color: 'red',
+      domains: ['facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'linkedin.com', 'tiktok.com', 'reddit.com', 'discord.com', 'youtube.com']
+    },
+    {
+      id: 'school',
+      name: 'Skola',
+      color: 'blue',
+      domains: ['edupage.org', 'ais.uniba.sk', 'uniba.sk', 'stuba.sk', 'ukf.sk', 'tuke.sk', 'umb.sk', 'moodle.com', 'moodle.org']
+    },
+    {
+      id: 'programming',
+      name: 'Programovanie',
+      color: 'green',
+      domains: ['github.com', 'stackoverflow.com', 'codepen.io', 'jsfiddle.net', 'replit.com', 'glitch.com', 'codesandbox.io']
+    },
+    {
+      id: 'entertainment',
+      name: 'Zabava',
+      color: 'purple',
+      domains: ['netflix.com', 'hbo.com', 'primevideo.com', 'disneyplus.com', 'twitch.tv', 'steam.com']
+    },
+    {
+      id: 'other',
+      name: 'Ostatne',
+      color: 'grey',
+      domains: []
+    }
+  ]
 };
 
-// Detekcia kategórie stránky
+let settings = normalizeSettings(defaultSettings);
+let organizingWindows = new Set();
+let scheduledRuns = new Map();
+let isInitializingSettings = true;
+
+function slugify(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || `category-${Date.now()}`;
+}
+
+function normalizeDomains(domains) {
+  if (Array.isArray(domains)) {
+    return domains.map(domain => String(domain).trim().toLowerCase()).filter(Boolean);
+  }
+
+  if (typeof domains === 'string') {
+    return domains
+      .split(/[,\n]/)
+      .map(domain => domain.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function normalizeColor(color) {
+  return GROUP_COLORS.includes(color) ? color : 'grey';
+}
+
+function cloneCategory(category) {
+  return {
+    id: category.id || slugify(category.name),
+    name: String(category.name || 'Category'),
+    color: normalizeColor(category.color),
+    domains: normalizeDomains(category.domains)
+  };
+}
+
+function normalizeSettings(rawSettings) {
+  const merged = {
+    enabled: rawSettings && typeof rawSettings.enabled === 'boolean' ? rawSettings.enabled : defaultSettings.enabled,
+    includeOtherGroup: rawSettings && typeof rawSettings.includeOtherGroup === 'boolean' ? rawSettings.includeOtherGroup : defaultSettings.includeOtherGroup,
+    categories: []
+  };
+
+  const rawCategories = Array.isArray(rawSettings && rawSettings.categories) ? rawSettings.categories : defaultSettings.categories;
+  const categories = rawCategories.map(cloneCategory);
+
+  if (!categories.some(category => category.id === 'other')) {
+    categories.push(cloneCategory(defaultSettings.categories.find(category => category.id === 'other')));
+  }
+
+  merged.categories = categories;
+  return merged;
+}
+
+async function loadSettings() {
+  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  settings = normalizeSettings(stored[STORAGE_KEY]);
+  await chrome.storage.local.set({ [STORAGE_KEY]: settings });
+  isInitializingSettings = false;
+  return settings;
+}
+
+function domainMatches(hostname, domain) {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 function detectCategory(url) {
-  try {
-    const domain = new URL(url).hostname.replace('www.', '');
-    
-    for (const [category, data] of Object.entries(defaultCategories)) {
-      if (data.domains.some(d => domain.includes(d))) {
-        return { type: category, color: data.color, name: data.name };
-      }
-    }
-    
-    return null;
-  } catch (e) {
+  if (!url || !settings) {
     return null;
   }
-}
 
-// Hlavná funkcia pre organizovanie tabov
-async function organizeTabs() {
-  console.log('Tab Organizer: Spúšťam organizovanie tabov...');
   try {
-    // Získame všetky taby v aktuálnom okne
-    const tabs = await chrome.tabs.query({ currentWindow: true });
-    console.log('Tab Organizer: Nájdených tabov:', tabs.length);
-    
-    // Rozdelíme taby podľa kategórií
-    const categorizedTabs = {
-      'social': [],
-      'school': [],
-      'programming': [],
-      'entertainment': [],
-      'other': []
-    };
-    
-    for (const tab of tabs) {
-      if (!tab.url) {
-        categorizedTabs.other.push(tab);
-        continue;
-      }
-      
-      const category = detectCategory(tab.url);
-      if (category) {
-        categorizedTabs[category.type].push(tab);
-      } else {
-        categorizedTabs.other.push(tab);
-      }
-    }
-    
-    // Najprv zrušíme všetky existujúce skupiny (ak sú podporované)
-    if (chrome.tabGroups) {
-      try {
-        const existingGroups = await chrome.tabGroups.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-        for (const group of existingGroups) {
-          try {
-            const groupTabs = tabs.filter(t => t.groupId === group.id);
-            for (const tab of groupTabs) {
-              await chrome.tabs.ungroup(tab.id);
-            }
-          } catch (e) {
-            // Ignorujeme chyby
-          }
-        }
-      } catch (e) {
-        // Tab Groups nie sú podporované
-      }
-    }
-    
-    // Pozícia pre presúvanie tabov
-    let position = 0;
-    
-    // Presunieme a zoskupíme taby podľa kategórií
-    for (const [categoryKey, categoryTabs] of Object.entries(categorizedTabs)) {
-      if (categoryTabs.length === 0) continue;
-      
-      // Presunieme taby na správnu pozíciu
-      for (const tab of categoryTabs) {
-        await chrome.tabs.move(tab.id, { index: position });
-        position++;
-      }
-      
-      // Vytvoríme skupinu (okrem "other") - ak prehliadač podporuje tabGroups
-      if (categoryKey !== 'other' && categoryTabs.length > 0 && chrome.tabGroups) {
-        try {
-          const tabIds = categoryTabs.map(t => t.id);
-          const groupId = await chrome.tabs.group({ tabIds });
-          
-          const categoryData = defaultCategories[categoryKey];
-          await chrome.tabGroups.update(groupId, {
-            title: categoryData.name,
-            color: categoryData.color
-          });
-        } catch (e) {
-          // Ak tabGroups nie je podporované, taby sú aspoň presunuté vedľa seba
-          console.log('Tab Groups nie sú podporované:', e.message);
+    const hostname = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+    const categories = settings.categories.filter(category => category.id !== 'other');
+
+    for (const category of categories) {
+      for (const domain of category.domains) {
+        if (domain && domainMatches(hostname, domain)) {
+          return category;
         }
       }
     }
-    
-    return { success: true };
   } catch (error) {
-    console.error('Chyba pri organizovaní tabov:', error);
-    return { success: false, error: error.message };
+    return null;
+  }
+
+  return null;
+}
+
+function getCategoryOrder() {
+  const categories = settings.categories.filter(category => category.id !== 'other');
+  if (settings.includeOtherGroup) {
+    categories.push(settings.categories.find(category => category.id === 'other'));
+  }
+
+  return categories.filter(Boolean);
+}
+
+async function ungroupTabs(tabIds) {
+  if (!tabIds.length || !chrome.tabGroups) {
+    return;
+  }
+
+  try {
+    await chrome.tabs.ungroup(tabIds);
+  } catch (error) {
+    console.warn('Tab Organizer: Ungroup failed', error);
   }
 }
 
-// Spracovanie správ od popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Tab Organizer: Prijatá správa:', message);
-  if (message.type === 'organizeTabs') {
-    organizeTabs()
-      .then(result => {
-        console.log('Tab Organizer: Výsledok:', result);
-        sendResponse(result);
-      })
-      .catch(error => {
-        console.error('Tab Organizer: Chyba:', error);
-        sendResponse({ success: false, error: error.message });
+async function moveTabsInOrder(orderedTabs) {
+  let nextIndex = 0;
+
+  for (const tab of orderedTabs) {
+    try {
+      await chrome.tabs.move(tab.id, { index: nextIndex });
+      nextIndex += 1;
+    } catch (error) {
+      console.warn('Tab Organizer: Move failed for tab', tab.id, error);
+    }
+  }
+}
+
+async function groupTabsByCategory(categoryMap) {
+  if (!chrome.tabGroups) {
+    return;
+  }
+
+  for (const category of getCategoryOrder()) {
+    const tabs = categoryMap.get(category.id) || [];
+    if (!tabs.length) {
+      continue;
+    }
+
+    try {
+      const groupId = await chrome.tabs.group({ tabIds: tabs.map(tab => tab.id) });
+      await chrome.tabGroups.update(groupId, {
+        title: category.name,
+        color: normalizeColor(category.color)
       });
+    } catch (error) {
+      console.warn('Tab Organizer: Group failed for category', category.id, error);
+    }
+  }
+}
+
+async function organizeWindow(windowId, force = false) {
+  if (!settings) {
+    await loadSettings();
+  }
+
+  if (!force && !settings.enabled) {
+    return { success: true, skipped: true };
+  }
+
+  if (organizingWindows.has(windowId)) {
+    return { success: true, skipped: true };
+  }
+
+  organizingWindows.add(windowId);
+
+  try {
+    const tabs = await chrome.tabs.query({ windowId });
+    const sortedTabs = [...tabs].sort((left, right) => left.index - right.index);
+    const categoryMap = new Map();
+
+    for (const category of getCategoryOrder()) {
+      categoryMap.set(category.id, []);
+    }
+
+    if (!categoryMap.has('other')) {
+      categoryMap.set('other', []);
+    }
+
+    for (const tab of sortedTabs) {
+      const category = detectCategory(tab.url);
+      const key = category ? category.id : 'other';
+      if (!categoryMap.has(key)) {
+        categoryMap.set(key, []);
+      }
+      categoryMap.get(key).push(tab);
+    }
+
+    const groupedTabIds = sortedTabs.filter(tab => tab.groupId !== chrome.tabs.TAB_ID_NONE).map(tab => tab.id);
+    await ungroupTabs(groupedTabIds);
+
+    const orderedTabs = [];
+    for (const category of getCategoryOrder()) {
+      orderedTabs.push(...(categoryMap.get(category.id) || []));
+    }
+
+    if (!settings.includeOtherGroup) {
+      orderedTabs.push(...(categoryMap.get('other') || []));
+    }
+
+    await moveTabsInOrder(orderedTabs);
+    await groupTabsByCategory(categoryMap);
+
+    return { success: true, tabCount: sortedTabs.length };
+  } catch (error) {
+    console.error('Tab Organizer: Organizing failed', error);
+    return { success: false, error: error.message };
+  } finally {
+    organizingWindows.delete(windowId);
+  }
+}
+
+async function organizeAllWindows(force = false) {
+  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+  const results = [];
+
+  for (const window of windows) {
+    results.push(await organizeWindow(window.id, force));
+  }
+
+  return results;
+}
+
+function scheduleOrganize(windowId, delay = 500) {
+  if (!settings || !settings.enabled || windowId === chrome.windows.WINDOW_ID_NONE) {
+    return;
+  }
+
+  const existingTimer = scheduledRuns.get(windowId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const timer = setTimeout(() => {
+    scheduledRuns.delete(windowId);
+    organizeWindow(windowId).catch(error => {
+      console.error('Tab Organizer: Scheduled organize failed', error);
+    });
+  }, delay);
+
+  scheduledRuns.set(windowId, timer);
+}
+
+chrome.runtime.onInstalled.addListener(async () => {
+  await loadSettings();
+  if (settings.enabled) {
+    await organizeAllWindows();
+  }
+});
+
+chrome.runtime.onStartup.addListener(async () => {
+  await loadSettings();
+  if (settings.enabled) {
+    await organizeAllWindows();
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes[STORAGE_KEY]) {
+    return;
+  }
+
+  settings = normalizeSettings(changes[STORAGE_KEY].newValue);
+
+  if (!isInitializingSettings && settings.enabled) {
+    organizeAllWindows(true).catch(error => {
+      console.error('Tab Organizer: Refresh after settings change failed', error);
+    });
+  }
+});
+
+chrome.tabs.onCreated.addListener(tab => {
+  scheduleOrganize(tab.windowId, 800);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' || changeInfo.url) {
+    scheduleOrganize(tab.windowId, 800);
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+  scheduleOrganize(removeInfo.windowId, 300);
+});
+
+chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
+  scheduleOrganize(attachInfo.newWindowId, 500);
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'organizeTabs') {
+    const windowId = typeof message.windowId === 'number' ? message.windowId : sender?.tab?.windowId;
+
+    if (typeof windowId !== 'number') {
+      organizeAllWindows(true)
+        .then(result => sendResponse({ success: true, result }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+    }
+
+    organizeWindow(windowId, true)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
+
+  if (message.type === 'getSettings') {
+    loadSettings()
+      .then(currentSettings => sendResponse({ success: true, settings: currentSettings }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  return false;
+});
+
+loadSettings().catch(error => {
+  console.error('Tab Organizer: Failed to initialize settings', error);
 });
