@@ -281,6 +281,34 @@ function scheduleOrganize(windowId, delay = 500) {
   scheduledRuns.set(windowId, timer);
 }
 
+async function keepNewTabInOpenerGroup(tab) {
+  if (!tab || typeof tab.id !== 'number' || typeof tab.openerTabId !== 'number') {
+    return false;
+  }
+
+  try {
+    const openerTab = await chrome.tabs.get(tab.openerTabId);
+
+    if (
+      openerTab.windowId !== tab.windowId ||
+      openerTab.groupId === chrome.tabs.TAB_ID_NONE ||
+      tab.groupId !== chrome.tabs.TAB_ID_NONE
+    ) {
+      return false;
+    }
+
+    await chrome.tabs.group({
+      groupId: openerTab.groupId,
+      tabIds: [tab.id]
+    });
+
+    return true;
+  } catch (error) {
+    console.warn('Tab Organizer: Could not keep new tab in opener group', error);
+    return false;
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   await loadSettings();
   if (settings.enabled) {
@@ -309,11 +337,22 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-chrome.tabs.onCreated.addListener(tab => {
-  scheduleOrganize(tab.windowId, 800);
+chrome.tabs.onCreated.addListener(async tab => {
+  const wasGroupedWithOpener = await keepNewTabInOpenerGroup(tab);
+  if (!wasGroupedWithOpener) {
+    scheduleOrganize(tab.windowId, 800);
+  }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (tab.groupId !== chrome.tabs.TAB_ID_NONE) {
+    return;
+  }
+
+  if (changeInfo.url && changeInfo.url.startsWith('chrome://newtab')) {
+    return;
+  }
+
   if (changeInfo.status === 'complete' || changeInfo.url) {
     scheduleOrganize(tab.windowId, 800);
   }
