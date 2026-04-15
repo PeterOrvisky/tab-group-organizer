@@ -1,5 +1,17 @@
+const chrome = globalThis.browser ?? globalThis.chrome;
+
+if (!chrome) {
+  throw new Error('TabNest: Browser extension API is not available.');
+}
+
 const STORAGE_KEY = 'tabOrganizerSettings';
 const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+const TAB_ID_NONE = typeof chrome?.tabs?.TAB_ID_NONE === 'number' ? chrome.tabs.TAB_ID_NONE : -1;
+const WINDOW_ID_NONE = typeof chrome?.windows?.WINDOW_ID_NONE === 'number' ? chrome.windows.WINDOW_ID_NONE : -1;
+
+function supportsTabGroups() {
+  return Boolean(chrome?.tabGroups && chrome?.tabs?.group && chrome?.tabs?.ungroup);
+}
 
 const defaultSettings = {
   enabled: true,
@@ -122,7 +134,7 @@ function getCategoryOrder() {
 }
 
 async function ungroupTabs(tabIds) {
-  if (!tabIds.length || !chrome.tabGroups) {
+  if (!tabIds.length || !supportsTabGroups()) {
     return;
   }
 
@@ -147,7 +159,7 @@ async function moveTabsInOrder(orderedTabs) {
 }
 
 async function groupTabsByCategory(categoryMap) {
-  if (!chrome.tabGroups) {
+  if (!supportsTabGroups()) {
     return;
   }
 
@@ -170,12 +182,12 @@ async function groupTabsByCategory(categoryMap) {
 }
 
 async function captureCollapsedGroupStates(tabs, windowId) {
-  if (!chrome.tabGroups) {
+  if (!supportsTabGroups()) {
     return new Map();
   }
 
   const states = new Map();
-  const groupIds = [...new Set(tabs.map(tab => tab.groupId).filter(groupId => groupId !== chrome.tabs.TAB_ID_NONE))];
+  const groupIds = [...new Set(tabs.map(tab => tab.groupId).filter(groupId => typeof groupId === 'number' && groupId !== TAB_ID_NONE))];
 
   for (const groupId of groupIds) {
     try {
@@ -192,13 +204,13 @@ async function captureCollapsedGroupStates(tabs, windowId) {
 }
 
 async function restoreCollapsedGroupStates(collapseStates, windowId) {
-  if (!chrome.tabGroups || !collapseStates || !collapseStates.size) {
+  if (!supportsTabGroups() || !collapseStates || !collapseStates.size) {
     return;
   }
 
   try {
     const tabs = await chrome.tabs.query({ windowId });
-    const groupIds = [...new Set(tabs.map(tab => tab.groupId).filter(groupId => groupId !== chrome.tabs.TAB_ID_NONE))];
+    const groupIds = [...new Set(tabs.map(tab => tab.groupId).filter(groupId => typeof groupId === 'number' && groupId !== TAB_ID_NONE))];
 
     for (const groupId of groupIds) {
       try {
@@ -255,7 +267,9 @@ async function organizeWindow(windowId, force = false) {
       categoryMap.get(key).push(tab);
     }
 
-    const groupedTabIds = sortedTabs.filter(tab => tab.groupId !== chrome.tabs.TAB_ID_NONE).map(tab => tab.id);
+    const groupedTabIds = sortedTabs
+      .filter(tab => typeof tab.groupId === 'number' && tab.groupId !== TAB_ID_NONE)
+      .map(tab => tab.id);
     await ungroupTabs(groupedTabIds);
 
     const orderedTabs = [];
@@ -292,7 +306,7 @@ async function organizeAllWindows(force = false) {
 }
 
 function scheduleOrganize(windowId, delay = 500) {
-  if (!settings || !settings.enabled || windowId === chrome.windows.WINDOW_ID_NONE) {
+  if (!settings || !settings.enabled || windowId === WINDOW_ID_NONE) {
     return;
   }
 
@@ -312,6 +326,10 @@ function scheduleOrganize(windowId, delay = 500) {
 }
 
 async function keepNewTabInOpenerGroup(tab) {
+  if (!supportsTabGroups()) {
+    return false;
+  }
+
   if (!tab || typeof tab.id !== 'number' || typeof tab.openerTabId !== 'number') {
     return false;
   }
@@ -321,8 +339,8 @@ async function keepNewTabInOpenerGroup(tab) {
 
     if (
       openerTab.windowId !== tab.windowId ||
-      openerTab.groupId === chrome.tabs.TAB_ID_NONE ||
-      tab.groupId !== chrome.tabs.TAB_ID_NONE
+      openerTab.groupId === TAB_ID_NONE ||
+      tab.groupId !== TAB_ID_NONE
     ) {
       return false;
     }

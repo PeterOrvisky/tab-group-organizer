@@ -1,3 +1,9 @@
+const chrome = globalThis.browser ?? globalThis.chrome;
+
+if (!chrome) {
+  throw new Error('TabNest: Browser extension API is not available.');
+}
+
 const STORAGE_KEY = 'tabOrganizerSettings';
 const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
 const COLOR_TOKENS = {
