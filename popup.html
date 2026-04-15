@@ -8,22 +8,37 @@
 <body>
   <div class="shell">
     <header class="header">
-      <div>
-        <div class="eyebrow">Browser extension</div>
-        <h1>Tab Organizer</h1>
-        <p class="subtitle">Zoskupuje taby podla domén a vlastných kategórií.</p>
+      <div class="header-top">
+        <div class="brand-block">
+          <img class="app-logo" src="logo/TabNest-logo.svg" alt="TabNest logo">
+          <div>
+            <div class="eyebrow">Browser extension</div>
+            <h1>TabNest</h1>
+            <p class="subtitle">Zoskupuje taby podla domén a vlastných kategórií.</p>
+          </div>
+        </div>
+        <div class="header-controls">
+          <label class="switch" aria-label="Zapnutie rozšírenia">
+            <input type="checkbox" id="enabledToggle">
+            <span class="switch-track"></span>
+          </label>
+          <div class="theme-toggle" role="group" aria-label="Prepnutie témy">
+            <button type="button" class="theme-option" data-theme-option="light">Light</button>
+            <button type="button" class="theme-option" data-theme-option="dark">Dark</button>
+          </div>
+        </div>
       </div>
-      <label class="switch" aria-label="Zapnutie rozšírenia">
-        <input type="checkbox" id="enabledToggle">
-        <span class="switch-track"></span>
-      </label>
+      <div class="header-actions">
+        <button class="secondary-btn compact" id="organizeBtn" type="button">Preusporiadat teraz</button>
+        <button class="secondary-btn compact" id="addCurrentDomainBtn" type="button">Pridat domenu do vybranych</button>
+      </div>
     </header>
 
     <section class="panel">
       <div class="panel-header">
         <div>
           <h2>Kategórie</h2>
-          <p>Pomenuj skupiny, nastav farby a pridaj vlastne domény.</p>
+          <p>Pomenuj skupiny, nastav farby, zbal ich a presuvaj poradie.</p>
         </div>
         <button id="addCategoryBtn" type="button" class="ghost-btn">Pridat kategóriu</button>
       </div>
@@ -31,7 +46,6 @@
     </section>
 
     <section class="panel actions-panel">
-      <button class="primary-btn" id="organizeBtn" type="button">Preusporiadat teraz</button>
       <div class="status" id="status">Nacitavam nastavenia...</div>
       <p class="hint">Nastavenia sa ukladaju automaticky.</p>
     </section>

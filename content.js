@@ -1,2 +1,2 @@
-// Content script - momentálne nepoužívaný
-// Rozšírenie Tab Organizer nepotrebuje content script
+// Content script - momentalne nepouzivany
+// Rozsirenie TabNest nepotrebuje content script

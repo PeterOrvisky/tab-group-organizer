@@ -4,31 +4,8 @@ const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple'
 const defaultSettings = {
   enabled: true,
   includeOtherGroup: true,
+  theme: 'light',
   categories: [
-    {
-      id: 'social',
-      name: 'Socialne siete',
-      color: 'red',
-      domains: ['facebook.com', 'instagram.com', 'twitter.com', 'x.com', 'linkedin.com', 'tiktok.com', 'reddit.com', 'discord.com', 'youtube.com']
-    },
-    {
-      id: 'school',
-      name: 'Skola',
-      color: 'blue',
-      domains: ['edupage.org', 'ais.uniba.sk', 'uniba.sk', 'stuba.sk', 'ukf.sk', 'tuke.sk', 'umb.sk', 'moodle.com', 'moodle.org']
-    },
-    {
-      id: 'programming',
-      name: 'Programovanie',
-      color: 'green',
-      domains: ['github.com', 'stackoverflow.com', 'codepen.io', 'jsfiddle.net', 'replit.com', 'glitch.com', 'codesandbox.io']
-    },
-    {
-      id: 'entertainment',
-      name: 'Zabava',
-      color: 'purple',
-      domains: ['netflix.com', 'hbo.com', 'primevideo.com', 'disneyplus.com', 'twitch.tv', 'steam.com']
-    },
     {
       id: 'other',
       name: 'Ostatne',
@@ -42,6 +19,7 @@ let settings = normalizeSettings(defaultSettings);
 let organizingWindows = new Set();
 let scheduledRuns = new Map();
 let isInitializingSettings = true;
+let suppressNextSettingsRefresh = false;
 
 function slugify(value) {
   return String(value || '')
@@ -71,10 +49,11 @@ function normalizeColor(color) {
 }
 
 function cloneCategory(category) {
+  const color = normalizeColor(category.color);
   return {
     id: category.id || slugify(category.name),
     name: String(category.name || 'Category'),
-    color: normalizeColor(category.color),
+    color,
     domains: normalizeDomains(category.domains)
   };
 }
@@ -83,6 +62,7 @@ function normalizeSettings(rawSettings) {
   const merged = {
     enabled: rawSettings && typeof rawSettings.enabled === 'boolean' ? rawSettings.enabled : defaultSettings.enabled,
     includeOtherGroup: rawSettings && typeof rawSettings.includeOtherGroup === 'boolean' ? rawSettings.includeOtherGroup : defaultSettings.includeOtherGroup,
+    theme: rawSettings && (rawSettings.theme === 'dark' || rawSettings.theme === 'light') ? rawSettings.theme : defaultSettings.theme,
     categories: []
   };
 
@@ -149,7 +129,7 @@ async function ungroupTabs(tabIds) {
   try {
     await chrome.tabs.ungroup(tabIds);
   } catch (error) {
-    console.warn('Tab Organizer: Ungroup failed', error);
+    console.warn('TabNest: Ungroup failed', error);
   }
 }
 
@@ -161,7 +141,7 @@ async function moveTabsInOrder(orderedTabs) {
       await chrome.tabs.move(tab.id, { index: nextIndex });
       nextIndex += 1;
     } catch (error) {
-      console.warn('Tab Organizer: Move failed for tab', tab.id, error);
+      console.warn('TabNest: Move failed for tab', tab.id, error);
     }
   }
 }
@@ -184,8 +164,56 @@ async function groupTabsByCategory(categoryMap) {
         color: normalizeColor(category.color)
       });
     } catch (error) {
-      console.warn('Tab Organizer: Group failed for category', category.id, error);
+      console.warn('TabNest: Group failed for category', category.id, error);
     }
+  }
+}
+
+async function captureCollapsedGroupStates(tabs, windowId) {
+  if (!chrome.tabGroups) {
+    return new Map();
+  }
+
+  const states = new Map();
+  const groupIds = [...new Set(tabs.map(tab => tab.groupId).filter(groupId => groupId !== chrome.tabs.TAB_ID_NONE))];
+
+  for (const groupId of groupIds) {
+    try {
+      const group = await chrome.tabGroups.get(groupId);
+      if (group && group.title && group.windowId === windowId) {
+        states.set(group.title, Boolean(group.collapsed));
+      }
+    } catch (error) {
+      console.warn('TabNest: Could not capture group state', groupId, error);
+    }
+  }
+
+  return states;
+}
+
+async function restoreCollapsedGroupStates(collapseStates, windowId) {
+  if (!chrome.tabGroups || !collapseStates || !collapseStates.size) {
+    return;
+  }
+
+  try {
+    const tabs = await chrome.tabs.query({ windowId });
+    const groupIds = [...new Set(tabs.map(tab => tab.groupId).filter(groupId => groupId !== chrome.tabs.TAB_ID_NONE))];
+
+    for (const groupId of groupIds) {
+      try {
+        const group = await chrome.tabGroups.get(groupId);
+        const shouldCollapse = collapseStates.get(group.title);
+
+        if (typeof shouldCollapse === 'boolean') {
+          await chrome.tabGroups.update(groupId, { collapsed: shouldCollapse });
+        }
+      } catch (error) {
+        console.warn('TabNest: Could not restore group state', groupId, error);
+      }
+    }
+  } catch (error) {
+    console.warn('TabNest: Could not inspect window for group state restore', windowId, error);
   }
 }
 
@@ -207,6 +235,7 @@ async function organizeWindow(windowId, force = false) {
   try {
     const tabs = await chrome.tabs.query({ windowId });
     const sortedTabs = [...tabs].sort((left, right) => left.index - right.index);
+    const collapsedGroupStates = await captureCollapsedGroupStates(sortedTabs, windowId);
     const categoryMap = new Map();
 
     for (const category of getCategoryOrder()) {
@@ -240,10 +269,11 @@ async function organizeWindow(windowId, force = false) {
 
     await moveTabsInOrder(orderedTabs);
     await groupTabsByCategory(categoryMap);
+    await restoreCollapsedGroupStates(collapsedGroupStates, windowId);
 
     return { success: true, tabCount: sortedTabs.length };
   } catch (error) {
-    console.error('Tab Organizer: Organizing failed', error);
+    console.error('TabNest: Organizing failed', error);
     return { success: false, error: error.message };
   } finally {
     organizingWindows.delete(windowId);
@@ -274,7 +304,7 @@ function scheduleOrganize(windowId, delay = 500) {
   const timer = setTimeout(() => {
     scheduledRuns.delete(windowId);
     organizeWindow(windowId).catch(error => {
-      console.error('Tab Organizer: Scheduled organize failed', error);
+      console.error('TabNest: Scheduled organize failed', error);
     });
   }, delay);
 
@@ -304,7 +334,7 @@ async function keepNewTabInOpenerGroup(tab) {
 
     return true;
   } catch (error) {
-    console.warn('Tab Organizer: Could not keep new tab in opener group', error);
+    console.warn('TabNest: Could not keep new tab in opener group', error);
     return false;
   }
 }
@@ -330,31 +360,36 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
   settings = normalizeSettings(changes[STORAGE_KEY].newValue);
 
+  if (suppressNextSettingsRefresh) {
+    suppressNextSettingsRefresh = false;
+    return;
+  }
+
   if (!isInitializingSettings && settings.enabled) {
     organizeAllWindows(true).catch(error => {
-      console.error('Tab Organizer: Refresh after settings change failed', error);
+      console.error('TabNest: Refresh after settings change failed', error);
     });
   }
 });
 
 chrome.tabs.onCreated.addListener(async tab => {
   const wasGroupedWithOpener = await keepNewTabInOpenerGroup(tab);
-  if (!wasGroupedWithOpener) {
-    scheduleOrganize(tab.windowId, 800);
-  }
-});
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (tab.groupId !== chrome.tabs.TAB_ID_NONE) {
+  if (wasGroupedWithOpener) {
+    scheduleOrganize(tab.windowId, 700);
     return;
   }
 
+  scheduleOrganize(tab.windowId, 700);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url && changeInfo.url.startsWith('chrome://newtab')) {
     return;
   }
 
-  if (changeInfo.status === 'complete' || changeInfo.url) {
-    scheduleOrganize(tab.windowId, 800);
+  if (changeInfo.url) {
+    scheduleOrganize(tab.windowId, 900);
   }
 });
 
@@ -364,6 +399,10 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
 
 chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
   scheduleOrganize(attachInfo.newWindowId, 500);
+});
+
+chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
+  scheduleOrganize(moveInfo.windowId, 300);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -390,9 +429,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'addDomainToCategories') {
+    (async () => {
+      if (!Array.isArray(message.categoryIds) || typeof message.domain !== 'string') {
+        sendResponse({ success: false, error: 'Neplatne vstupne data.' });
+        return;
+      }
+
+      if (!settings) {
+        await loadSettings();
+      }
+
+      const normalizedDomain = message.domain.trim().toLowerCase();
+      const updatedCategories = settings.categories.map(category => {
+        if (category.id === 'other' || !message.categoryIds.includes(category.id)) {
+          return category;
+        }
+
+        const domains = Array.isArray(category.domains) ? [...category.domains] : [];
+        if (!domains.includes(normalizedDomain)) {
+          domains.push(normalizedDomain);
+        }
+
+        return {
+          ...category,
+          domains
+        };
+      });
+
+      settings = normalizeSettings({ ...settings, categories: updatedCategories });
+      suppressNextSettingsRefresh = true;
+      await chrome.storage.local.set({ [STORAGE_KEY]: settings });
+      sendResponse({ success: true, settings });
+    })().catch(error => {
+      suppressNextSettingsRefresh = false;
+      sendResponse({ success: false, error: error.message });
+    });
+
+    return true;
+  }
+
   return false;
 });
 
 loadSettings().catch(error => {
-  console.error('Tab Organizer: Failed to initialize settings', error);
+  console.error('TabNest: Failed to initialize settings', error);
 });
