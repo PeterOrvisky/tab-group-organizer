@@ -333,16 +333,16 @@ h1 {
   margin-left: auto;
   display: inline-grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 34px;
+  height: 34px;
   flex: 0 0 auto;
   color: var(--muted);
   transition: transform 0.18s ease, color 0.18s ease;
 }
 
 .category-collapse-indicator svg {
-  width: 15px;
-  height: 15px;
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
@@ -357,6 +357,18 @@ h1 {
   justify-content: flex-end;
   gap: 6px;
   flex: 0 0 auto;
+}
+
+.category-actions .icon-btn {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.category-actions .button-icon {
+  width: 24px;
+  height: 24px;
 }
 
 .move-controls {
@@ -420,9 +432,17 @@ h1 {
   background: transparent;
 }
 
+.move-controls .move-btn .button-icon {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
 .move-controls .move-btn .button-icon svg {
-  width: 12px;
-  height: 12px;
+  width: 19px;
+  height: 19px;
+  margin: 0;
 }
 
 .move-controls .move-btn + .move-btn {
@@ -450,7 +470,8 @@ h1 {
 .add-domain-btn {
   color: var(--primary-strong);
   background: rgba(37, 99, 235, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.1);
+  border: 0;
+  box-shadow: none;
 }
 
 .add-domain-btn:hover {
@@ -458,13 +479,13 @@ h1 {
 }
 
 .add-domain-btn .button-icon {
-  width: 15px;
-  height: 15px;
+  width: 24px;
+  height: 24px;
 }
 
 .add-domain-btn.is-active {
   background: rgba(37, 99, 235, 0.18);
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18), 0 10px 18px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.1);
 }
 
 .header-actions .secondary-btn {
@@ -474,8 +495,8 @@ h1 {
 }
 
 .header-actions .secondary-btn .button-icon {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
 }
 
 .category-body {
@@ -705,8 +726,8 @@ body[data-theme='dark'] .switch input:checked + .switch-track {
 }
 
 .danger-btn.icon-btn .button-icon {
-  width: 15px;
-  height: 15px;
+  width: 22px;
+  height: 22px;
 }
 
 .category-card.is-collapsed .category-header {
