@@ -441,12 +441,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       const normalizedDomain = message.domain.trim().toLowerCase();
+      const operation = message.operation === 'remove' ? 'remove' : 'add';
       const updatedCategories = settings.categories.map(category => {
         if (category.id === 'other' || !message.categoryIds.includes(category.id)) {
           return category;
         }
 
         const domains = Array.isArray(category.domains) ? [...category.domains] : [];
+        if (operation === 'remove') {
+          return {
+            ...category,
+            domains: domains.filter(domain => !domainMatches(normalizedDomain, String(domain).trim().toLowerCase()))
+          };
+        }
+
         if (!domains.includes(normalizedDomain)) {
           domains.push(normalizedDomain);
         }

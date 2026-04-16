@@ -12,6 +12,13 @@ const COLOR_TOKENS = {
   orange: { accent: '#ea580c', soft: 'rgba(234, 88, 12, 0.14)' }
 };
 
+const ACTION_ICON_SVGS = {
+  remove: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 7h14M10 3.8h4M9 7v11m6-11v11M7.5 7l.8 12h7.4l.8-12" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/></svg>',
+  addDomain: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>',
+  removeDomain: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m8 10 4 4 4-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/></svg>'
+};
+
 const defaultSettings = {
   enabled: true,
   includeOtherGroup: true,
@@ -31,25 +38,24 @@ const state = {
   includeOtherGroup: true,
   theme: 'light',
   categories: [],
-  selectedCategoryIds: new Set(),
-  collapsedCategoryIds: new Set()
+  collapsedCategoryIds: new Set(),
+  currentTabDomain: null
 };
 
 let saveTimer = null;
 let isReady = false;
-let draggedCategoryId = null;
 
 const enabledToggle = document.getElementById('enabledToggle');
 const categoriesContainer = document.getElementById('categories');
 const addCategoryBtn = document.getElementById('addCategoryBtn');
 const organizeBtn = document.getElementById('organizeBtn');
-const addCurrentDomainBtn = document.getElementById('addCurrentDomainBtn');
 const themeButtons = document.querySelectorAll('[data-theme-option]');
 const statusEl = document.getElementById('status');
 
 function setStatus(message, type = 'info') {
   statusEl.textContent = message;
   statusEl.classList.remove('success', 'error');
+
   if (type === 'success' || type === 'error') {
     statusEl.classList.add(type);
   }
@@ -58,6 +64,7 @@ function setStatus(message, type = 'info') {
 function cloneCategory(category) {
   const safeCategory = category && typeof category === 'object' ? category : {};
   const color = GROUP_COLORS.includes(safeCategory.color) ? safeCategory.color : 'grey';
+
   return {
     id: safeCategory.id || `category-${Date.now()}`,
     name: String(safeCategory.name || 'Nova kategoria'),
@@ -107,6 +114,19 @@ function toDomainList(value) {
     .filter(Boolean);
 }
 
+function domainMatches(hostname, domain) {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function categoryHasCurrentDomain(category, currentDomain) {
+  if (!category || !currentDomain || category.id === 'other') {
+    return false;
+  }
+
+  const domains = Array.isArray(category.domains) ? category.domains : [];
+  return domains.some(domain => domain && domainMatches(currentDomain, String(domain).trim().toLowerCase()));
+}
+
 function createColorOptions(selectedColor) {
   return GROUP_COLORS.map(color => {
     const option = document.createElement('option');
@@ -141,10 +161,6 @@ function applyTheme(theme) {
   }
 }
 
-function getSelectedCategories() {
-  return state.categories.filter(category => state.selectedCategoryIds.has(category.id) && category.id !== 'other');
-}
-
 async function getCurrentTabDomain() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const currentTab = tabs[0];
@@ -176,6 +192,123 @@ function scheduleSave() {
   }, 250);
 }
 
+function createIconSpan(svgMarkup, className) {
+  const icon = document.createElement('span');
+  icon.className = className;
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = svgMarkup;
+  return icon;
+}
+
+function attachIconClickFeedback(button) {
+  if (!button) {
+    return;
+  }
+
+  button.addEventListener('click', () => {
+    button.classList.add('is-clicked');
+    setTimeout(() => {
+      button.classList.remove('is-clicked');
+    }, 140);
+  });
+}
+
+function createIconButton({ className, iconKey, label, title, pressed = null, disabled = false }) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.title = title || label;
+  button.setAttribute('aria-label', label);
+
+  if (pressed !== null) {
+    button.setAttribute('aria-pressed', String(pressed));
+  }
+
+  button.disabled = disabled;
+  button.appendChild(createIconSpan(ACTION_ICON_SVGS[iconKey], 'button-icon'));
+  attachIconClickFeedback(button);
+  return button;
+}
+
+async function updateCurrentTabDomainInCategory(categoryId, operation) {
+  const category = state.categories.find(item => item.id === categoryId);
+  if (!category || category.id === 'other') {
+    return;
+  }
+
+  const web = state.currentTabDomain || await getCurrentTabDomain();
+  if (!web) {
+    setStatus('Nepodarilo sa ziskat aktualny web z karty.', 'error');
+    return;
+  }
+
+  const normalizedOperation = operation === 'remove' ? 'remove' : 'add';
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'addDomainToCategories',
+      domain: web,
+      categoryIds: [categoryId],
+      operation: normalizedOperation
+    });
+
+    if (!response || !response.success) {
+      const actionText = normalizedOperation === 'remove' ? 'odstranit web' : 'pridat web';
+      setStatus(`Nepodarilo sa ${actionText}: ${response?.error || 'neznamy problem'}`, 'error');
+      return;
+    }
+
+    state.categories = response.settings.categories;
+    state.currentTabDomain = web;
+    renderCategories();
+    if (normalizedOperation === 'remove') {
+      setStatus(`Aktualny web bol odstraneny z kategorie ${category.name}.`, 'success');
+    } else {
+      setStatus(`Aktualny web bol pridany do kategorie ${category.name}.`, 'success');
+    }
+  } catch (error) {
+    const actionText = normalizedOperation === 'remove' ? 'odstranit web' : 'pridat web';
+    setStatus(`Nepodarilo sa ${actionText}: ${error.message}`, 'error');
+  }
+}
+
+function moveCategoryByOffset(categoryId, offset) {
+  if (!offset || categoryId === 'other') {
+    return;
+  }
+
+  const card = categoriesContainer.querySelector(`[data-category-id="${categoryId}"]`);
+  if (!card) {
+    return;
+  }
+
+  const cards = Array.from(categoriesContainer.querySelectorAll('[data-category-id]'));
+  const currentIndex = cards.findIndex(item => item.getAttribute('data-category-id') === categoryId);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const targetIndex = currentIndex + offset;
+  if (targetIndex < 0 || targetIndex >= cards.length) {
+    return;
+  }
+
+  const targetCard = cards[targetIndex];
+  if (!targetCard || targetCard.getAttribute('data-category-id') === 'other') {
+    return;
+  }
+
+  if (offset < 0) {
+    categoriesContainer.insertBefore(card, targetCard);
+  } else {
+    categoriesContainer.insertBefore(targetCard, card);
+  }
+
+  syncStateFromControls();
+  renderCategories({ preserveCollapsedState: true });
+  scheduleSave();
+}
+
 function updateCategorySummary(card) {
   try {
     if (!card || typeof card.querySelector !== 'function') {
@@ -193,7 +326,7 @@ function updateCategorySummary(card) {
 
     if (metaEl && domainsInput) {
       const domainCount = toDomainList(domainsInput.value).length;
-      metaEl.textContent = domainCount === 1 ? '1 domena' : `${domainCount} domen`;
+      metaEl.textContent = domainCount === 1 ? '1 web' : `${domainCount} webov`;
     }
   } catch (error) {
     console.warn('TabNest: updateCategorySummary failed', error);
@@ -226,11 +359,12 @@ function syncStateFromControls() {
 
 function setCardCollapsed(card, collapsed) {
   const body = card.querySelector('.category-body');
-  const collapseBtn = card.querySelector('[data-action="collapse"]');
+  const indicator = card.querySelector('.category-collapse-indicator');
   const categoryId = card.getAttribute('data-category-id');
 
   card.classList.toggle('is-collapsed', collapsed);
   card.classList.toggle('is-expanded', !collapsed);
+
   if (body) {
     body.hidden = collapsed;
   }
@@ -243,68 +377,8 @@ function setCardCollapsed(card, collapsed) {
     }
   }
 
-  if (collapseBtn) {
-    collapseBtn.textContent = collapsed ? 'Rozbalit' : 'Zbalit';
-    collapseBtn.setAttribute('aria-expanded', String(!collapsed));
-  }
-}
-
-function moveCardBefore(draggedCard, targetCard) {
-  if (!draggedCard || !targetCard || draggedCard === targetCard) {
-    return;
-  }
-
-  const targetCategoryId = targetCard.getAttribute('data-category-id');
-  if (targetCategoryId === 'other') {
-    categoriesContainer.insertBefore(draggedCard, targetCard);
-    return;
-  }
-
-  categoriesContainer.insertBefore(draggedCard, targetCard);
-}
-
-function toggleCategorySelected(categoryId, selected) {
-  if (selected) {
-    state.selectedCategoryIds.add(categoryId);
-  } else {
-    state.selectedCategoryIds.delete(categoryId);
-  }
-}
-
-async function addCurrentDomainToSelectedCategories() {
-  syncStateFromControls();
-
-  const selectedCategories = getSelectedCategories();
-  if (!selectedCategories.length) {
-    setStatus('Najprv oznac aspon jednu kategoriu.', 'error');
-    return;
-  }
-
-  const domain = await getCurrentTabDomain();
-  if (!domain) {
-    setStatus('Nepodarilo sa ziskat domenu z aktualneho tabu.', 'error');
-    return;
-  }
-
-  const categoryIds = selectedCategories.map(category => category.id);
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'addDomainToCategories',
-      domain,
-      categoryIds
-    });
-
-    if (!response || !response.success) {
-      setStatus(`Nepodarilo sa pridat domenu: ${response?.error || 'neznamy problem'}`, 'error');
-      return;
-    }
-
-    state.categories = response.settings.categories;
-    renderCategories();
-    setStatus(`Domena ${domain} pridana do ${categoryIds.length} kategorii.`, 'success');
-  } catch (error) {
-    setStatus(`Nepodarilo sa pridat domenu: ${error.message}`, 'error');
+  if (indicator) {
+    indicator.setAttribute('aria-label', collapsed ? 'Rozbalit kategoriu' : 'Zbalit kategoriu');
   }
 }
 
@@ -314,22 +388,11 @@ function renderCategory(category) {
   card.dataset.categoryId = category.id;
   applyCategoryAccent(card, category);
 
-  if (state.selectedCategoryIds.has(category.id)) {
-    card.classList.add('is-selected');
-  }
-
   const header = document.createElement('div');
   header.className = 'category-header';
 
   const summary = document.createElement('div');
   summary.className = 'category-summary';
-
-  const selectionBadge = document.createElement('span');
-  selectionBadge.className = 'category-selection-badge';
-  selectionBadge.textContent = 'Vybrana';
-
-  const colorDot = document.createElement('span');
-  colorDot.className = 'category-color-dot';
 
   const titleGroup = document.createElement('div');
   titleGroup.className = 'category-title-group';
@@ -342,67 +405,77 @@ function renderCategory(category) {
   meta.className = 'category-meta';
 
   titleGroup.append(title, meta);
-  summary.append(selectionBadge, colorDot, titleGroup);
 
-  const actions = document.createElement('div');
-  actions.className = 'category-actions';
+  if (category.id === 'other') {
+    summary.append(titleGroup);
+    header.append(summary);
+  } else {
+    const collapseIndicator = createIconSpan(ACTION_ICON_SVGS.chevron, 'category-collapse-indicator');
+    summary.append(titleGroup, collapseIndicator);
 
-  const dragHandle = document.createElement('button');
-  dragHandle.type = 'button';
-  dragHandle.className = 'drag-handle';
-  dragHandle.textContent = 'Presun';
-  dragHandle.title = category.id === 'other' ? 'Ostatne je pevna kategoria' : 'Presunut kategoriu';
-  dragHandle.disabled = category.id === 'other';
-  dragHandle.draggable = category.id !== 'other';
+    const actions = document.createElement('div');
+    actions.className = 'category-actions';
 
-  dragHandle.addEventListener('dragstart', event => {
-    if (category.id === 'other') {
-      event.preventDefault();
-      return;
-    }
+    const moveControls = document.createElement('div');
+    moveControls.className = 'move-controls';
 
-    draggedCategoryId = category.id;
-    card.classList.add('is-dragging');
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', category.id);
-  });
+    const categoryIndex = state.categories.findIndex(item => item.id === category.id);
+    const canMoveUp = categoryIndex > 0;
+    const canMoveDown = categoryIndex >= 0 && categoryIndex < state.categories.length - 2;
+    const hasCurrentDomain = categoryHasCurrentDomain(category, state.currentTabDomain);
 
-  dragHandle.addEventListener('dragend', () => {
-    draggedCategoryId = null;
-    card.classList.remove('is-dragging');
-    for (const item of categoriesContainer.querySelectorAll('.is-drop-target')) {
-      item.classList.remove('is-drop-target');
-    }
-  });
+    const moveUpBtn = createIconButton({
+      className: 'icon-btn move-btn move-up-btn',
+      iconKey: 'chevron',
+      label: 'Posunut kategoriu hore',
+      title: 'Posunut kategoriu hore',
+      disabled: !canMoveUp
+    });
 
-  const collapseBtn = document.createElement('button');
-  collapseBtn.type = 'button';
-  collapseBtn.className = 'ghost-btn compact';
-  collapseBtn.dataset.action = 'collapse';
-  collapseBtn.textContent = 'Zbalit';
-  collapseBtn.addEventListener('click', () => {
-    const isCollapsed = !card.classList.contains('is-collapsed');
-    setCardCollapsed(card, isCollapsed);
-  });
+    moveUpBtn.addEventListener('click', () => {
+      moveCategoryByOffset(category.id, -1);
+    });
 
-  const removeBtn = document.createElement('button');
-  removeBtn.type = 'button';
-  removeBtn.className = 'danger-btn compact';
-  removeBtn.textContent = 'Odstranit';
-  removeBtn.disabled = category.id === 'other';
-  removeBtn.title = category.id === 'other' ? 'Ostatne je systemova kategoria' : 'Odstranit kategoriu';
-  removeBtn.addEventListener('click', () => {
-    if (category.id === 'other') {
-      return;
-    }
+    const moveDownBtn = createIconButton({
+      className: 'icon-btn move-btn move-down-btn',
+      iconKey: 'chevron',
+      label: 'Posunut kategoriu dole',
+      title: 'Posunut kategoriu dole',
+      disabled: !canMoveDown
+    });
 
-    card.remove();
-    syncStateFromControls();
-    scheduleSave();
-  });
+    moveDownBtn.addEventListener('click', () => {
+      moveCategoryByOffset(category.id, 1);
+    });
 
-  actions.append(dragHandle, collapseBtn, removeBtn);
-  header.append(summary, actions);
+    const addDomainBtn = createIconButton({
+      className: 'icon-btn add-domain-btn',
+      iconKey: hasCurrentDomain ? 'removeDomain' : 'addDomain',
+      label: hasCurrentDomain ? 'Odstranit aktualny web z kategorie' : 'Pridat aktualny web do kategorie',
+      title: hasCurrentDomain ? 'Odstranit aktualny web z kategorie' : 'Pridat aktualny web do kategorie'
+    });
+
+    addDomainBtn.addEventListener('click', () => {
+      updateCurrentTabDomainInCategory(category.id, hasCurrentDomain ? 'remove' : 'add');
+    });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'danger-btn compact icon-btn';
+    removeBtn.appendChild(createIconSpan(ACTION_ICON_SVGS.remove, 'button-icon'));
+    attachIconClickFeedback(removeBtn);
+    removeBtn.title = 'Odstranit kategoriu';
+    removeBtn.setAttribute('aria-label', removeBtn.title);
+    removeBtn.addEventListener('click', () => {
+      card.remove();
+      syncStateFromControls();
+      scheduleSave();
+    });
+
+    moveControls.append(moveUpBtn, moveDownBtn);
+    actions.append(addDomainBtn, removeBtn, moveControls);
+    header.append(summary, actions);
+  }
 
   const body = document.createElement('div');
   body.className = 'category-body';
@@ -450,7 +523,7 @@ function renderCategory(category) {
 
   const domainLabel = document.createElement('label');
   domainLabel.className = 'field-label';
-  domainLabel.textContent = 'Domény';
+  domainLabel.textContent = 'Weby';
 
   const domainsInput = document.createElement('textarea');
   domainsInput.className = 'domains-input';
@@ -466,52 +539,22 @@ function renderCategory(category) {
 
   const note = document.createElement('p');
   note.className = 'category-note';
-  note.textContent = 'Domény oddel ciarkou alebo novym riadkom.';
+  note.textContent = 'Weby oddel ciarkou alebo novym riadkom.';
 
   body.append(nameGroup, colorGroup, domainLabel, domainsInput, note);
   card.append(header, body);
 
-  card.addEventListener('dragover', event => {
-    if (!draggedCategoryId || category.id === 'other') {
-      return;
-    }
-
-    event.preventDefault();
-    card.classList.add('is-drop-target');
-  });
-
-  card.addEventListener('dragleave', () => {
-    card.classList.remove('is-drop-target');
-  });
-
-  card.addEventListener('drop', event => {
-    if (!draggedCategoryId || category.id === 'other') {
-      return;
-    }
-
-    event.preventDefault();
-    const draggedCard = categoriesContainer.querySelector(`[data-category-id="${draggedCategoryId}"]`);
-    card.classList.remove('is-drop-target');
-
-    if (draggedCard) {
-      moveCardBefore(draggedCard, card);
-      syncStateFromControls();
-      scheduleSave();
-    }
-  });
-
   card.addEventListener('click', event => {
-    if (category.id === 'other') {
-      return;
-    }
-
     if (event.target.closest('button, input, select, textarea, label, a')) {
       return;
     }
 
-    const isSelected = state.selectedCategoryIds.has(category.id);
-    toggleCategorySelected(category.id, !isSelected);
-    card.classList.toggle('is-selected', !isSelected);
+    if (category.id === 'other') {
+      return;
+    }
+
+    const isCollapsed = !card.classList.contains('is-collapsed');
+    setCardCollapsed(card, isCollapsed);
   });
 
   updateCategorySummary(card);
@@ -523,6 +566,7 @@ function renderCategories(options = {}) {
   const preserveCollapsedState = options.preserveCollapsedState !== false;
   const collapsedCategoryIds = preserveCollapsedState ? new Set(state.collapsedCategoryIds) : new Set();
   categoriesContainer.innerHTML = '';
+
   for (const category of state.categories) {
     const card = renderCategory(category);
     categoriesContainer.appendChild(card);
@@ -543,7 +587,7 @@ function addCategory() {
 
   const categoriesWithoutOther = state.categories.filter(category => category.id !== 'other');
   const otherCategory = state.categories.find(category => category.id === 'other');
-  state.categories = [...categoriesWithoutOther, newCategory, ...(otherCategory ? [otherCategory] : [])];
+  state.categories = [newCategory, ...categoriesWithoutOther, ...(otherCategory ? [otherCategory] : [])];
   renderCategories({ preserveCollapsedState: true });
   scheduleSave();
 }
@@ -556,6 +600,11 @@ async function loadState() {
   state.includeOtherGroup = normalized.includeOtherGroup;
   state.theme = normalized.theme;
   state.categories = normalized.categories;
+  try {
+    state.currentTabDomain = await getCurrentTabDomain();
+  } catch (error) {
+    state.currentTabDomain = null;
+  }
   state.collapsedCategoryIds = new Set(normalized.categories.map(category => category.id));
 
   enabledToggle.checked = state.enabled;
@@ -577,6 +626,7 @@ async function organizeNow() {
       setStatus(`Nepodarilo sa preusporiadat taby: ${response?.error || 'neznamy problem'}`, 'error');
     }
   } catch (error) {
+    setStatus(`Nepodarilo sa preusporiadat taby: ${error.message}`, 'error');
     renderCategories({ preserveCollapsedState: true });
   }
 }
@@ -595,7 +645,6 @@ for (const button of themeButtons) {
 
 addCategoryBtn.addEventListener('click', addCategory);
 organizeBtn.addEventListener('click', organizeNow);
-addCurrentDomainBtn.addEventListener('click', addCurrentDomainToSelectedCategories);
 
 loadState().catch(error => {
   setStatus(`Nepodarilo sa nacitat nastavenia: ${error.message}`, 'error');
