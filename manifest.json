@@ -8,14 +8,14 @@
 		"service_worker": "background.js"
 	},
 	"icons": {
-		"16": "logo/TabNest-logo.png",
-		"48": "logo/TabNest-logo.png",
-		"128": "logo/TabNest-logo.png"
+		"16": "logo/TabNest-logoW.png",
+		"48": "logo/TabNest-logoW.png",
+		"128": "logo/TabNest-logoW.png"
 	},
 	"action": {
 		"default_icon": {
-			"16": "logo/TabNest-logo.png",
-			"48": "logo/TabNest-logo.png"
+			"16": "logo/TabNest-logoW.png",
+			"48": "logo/TabNest-logoW.png"
 		},
 		"default_popup": "popup.html"
 	}

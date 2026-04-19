@@ -1,5 +1,17 @@
 const STORAGE_KEY = 'tabOrganizerSettings';
 const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+const ICON_PATHS = {
+  light: {
+    16: 'logo/TabNest-logoB.png',
+    48: 'logo/TabNest-logoB.png',
+    128: 'logo/TabNest-logoB.png'
+  },
+  dark: {
+    16: 'logo/TabNest-logoW.png',
+    48: 'logo/TabNest-logoW.png',
+    128: 'logo/TabNest-logoW.png'
+  }
+};
 
 const defaultSettings = {
   enabled: true,
@@ -77,10 +89,25 @@ function normalizeSettings(rawSettings) {
   return merged;
 }
 
+async function updateExtensionIcon(theme) {
+  if (!chrome.action) {
+    return;
+  }
+
+  const normalizedTheme = theme === 'dark' ? 'dark' : 'light';
+
+  try {
+    await chrome.action.setIcon({ path: ICON_PATHS[normalizedTheme] });
+  } catch (error) {
+    console.warn('TabNest: Could not update extension icon', error);
+  }
+}
+
 async function loadSettings() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   settings = normalizeSettings(stored[STORAGE_KEY]);
   await chrome.storage.local.set({ [STORAGE_KEY]: settings });
+  await updateExtensionIcon(settings.theme);
   isInitializingSettings = false;
   return settings;
 }
@@ -359,6 +386,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 
   settings = normalizeSettings(changes[STORAGE_KEY].newValue);
+  updateExtensionIcon(settings.theme).catch(error => {
+    console.warn('TabNest: Failed to refresh extension icon after settings change', error);
+  });
 
   if (suppressNextSettingsRefresh) {
     suppressNextSettingsRefresh = false;

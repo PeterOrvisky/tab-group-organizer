@@ -49,8 +49,14 @@ const enabledToggle = document.getElementById('enabledToggle');
 const categoriesContainer = document.getElementById('categories');
 const addCategoryBtn = document.getElementById('addCategoryBtn');
 const organizeBtn = document.getElementById('organizeBtn');
+const appLogo = document.querySelector('.app-logo');
 const themeButtons = document.querySelectorAll('[data-theme-option]');
 const statusEl = document.getElementById('status');
+
+const APP_LOGO_PATHS = {
+  light: 'logo/TabNest-logoB.png',
+  dark: 'logo/TabNest-logoW.png'
+};
 
 function setStatus(message, type = 'info') {
   statusEl.textContent = message;
@@ -153,6 +159,10 @@ function applyCategoryAccent(card, category) {
 function applyTheme(theme) {
   state.theme = theme === 'dark' ? 'dark' : 'light';
   document.body.dataset.theme = state.theme;
+
+  if (appLogo) {
+    appLogo.src = APP_LOGO_PATHS[state.theme];
+  }
 
   for (const button of themeButtons) {
     const isActive = button.getAttribute('data-theme-option') === state.theme;
